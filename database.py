@@ -6,6 +6,7 @@ import os
 from btree import Btree
 import shutil
 from misc import split_condition
+import time
 
 class Database:
     '''
@@ -13,6 +14,7 @@ class Database:
     '''
 
     def __init__(self, name, load=True):
+
         self.tables = {}
         self._name = name
 
@@ -44,14 +46,20 @@ class Database:
         self.save()
 
 
-
     def save(self):
         '''
         Save db as a pkl file. This method saves the db object, ie all the tables and attributes.
         '''
+        #timing
+        t0 = time.time()
+        opts = 0
         for name, table in self.tables.items():
+            opts+=1
             with open(f'{self.savedir}/{name}.pkl', 'wb') as f:
                 pickle.dump(table, f)
+        if(name.split("_")[0]!="meta"):
+            print(f'Save took "{time.time()-t0}"\nOperations in save are:"{opts}"')
+
 
     def _save_locks(self):
         '''
@@ -65,7 +73,6 @@ class Database:
         Load all the tables that are part of the db (indexs are noted loaded here)
         '''
         for file in os.listdir(path):
-
             if file[-3:]!='pkl': # if used to load only pkl files
                 continue
             f = open(path+'/'+file, 'rb')
@@ -74,6 +81,7 @@ class Database:
             name = f'{file.split(".")[0]}'
             self.tables.update({name: tmp_dict})
             setattr(self, name, self.tables[name])
+
 
     def drop_db(self):
         shutil.rmtree(self.savedir)
@@ -96,7 +104,15 @@ class Database:
         or
         db_object.table_name
         '''
+        #timing
+        if(name.split("_")[0]!="meta"):
+            t0 = time.time()
+
         self.tables.update({name: Table(name=name, column_names=column_names, column_types=column_types, primary_key=primary_key, load=load)})
+        #timing
+        if(name.split("_")[0]!="meta"):
+            t1_update = time.time()
+
         # self._name = Table(name=name, column_names=column_names, column_types=column_types, load=load)
         # check that new dynamic var doesnt exist already
         if name not in self.__dir__():
@@ -105,14 +121,22 @@ class Database:
             raise Exception(f'Attribute "{name}" already exists in class "{self.__class__.__name__}".')
         # self.no_of_tables += 1
         print(f'New table "{name}"')
+        #timing
+        if(name.split("_")[0]!="meta"):
+            print(f'Update in "{name}" took:"{t1_update - t0}".')
         self._update()
         self.save()
+        if(name.split("_")[0]!="meta"):
+            print("Create table took:",time.time() - t0)
 
 
     def drop_table(self, table_name):
         '''
         Drop table with name 'table_name' from current db
         '''
+        if(table_name.split("_")[0]!="meta"):
+            t0 = time.time()
+
         self.load(self.savedir)
         if self.is_locked(table_name):
             return
@@ -129,7 +153,8 @@ class Database:
 
         # self._update()
         self.save()
-
+        if(table_name.split("_")[0]!="meta"):
+            print(f'Drop of "{table_name}" took:"{time.time() - t0}".')
 
     def table_from_csv(self, filename, name=None, column_types=None, primary_key=None):
         '''
@@ -137,6 +162,8 @@ class Database:
         If name is not specified, filename's name is used
         If column types are not specified, all are regarded to be of type str
         '''
+        #timing
+        t0 = time.time()
         if name is None:
             name=filename.split('.')[:-1][0]
 
@@ -144,7 +171,9 @@ class Database:
         file = open(filename, 'r')
 
         first_line=True
+        opts = 0
         for line in file.readlines():
+
             if first_line:
                 colnames = line.strip('\n').split(',')
                 if column_types is None:
@@ -152,24 +181,34 @@ class Database:
                 self.create_table(name=name, column_names=colnames, column_types=column_types, primary_key=primary_key)
                 self.lockX_table(name)
                 first_line = False
+                opts+=1
                 continue
             self.tables[name]._insert(line.strip('\n').split(','))
 
         self.unlock_table(name)
         self._update()
         self.save()
-
+        print(f'Table from csv took:"{time.time() - t0}"\nOperations in save are:"{opts}"')
 
     def table_to_csv(self, table_name, filename=None):
+        #timing
+        t0 = time.time()
         res = ''
+        opts = 0
         for row in [self.tables[table_name].column_names]+self.tables[table_name].data:
             res+=str(row)[1:-1].replace('\'', '').replace('"','').replace(' ','')+'\n'
+            opts+=1
+
+        print("Number of operations in table_to_csv are:", opts)
 
         if filename is None:
             filename = f'{table_name}.csv'
-
+        t1 = time.time()
         with open(filename, 'w') as file:
            file.write(res)
+        #timing
+        print("File written in ", time.time()-t1)
+        print("Table to csv proccess took ", time.time()-t0)
 
     def table_from_object(self, new_table):
         '''
@@ -222,6 +261,8 @@ class Database:
         row -> a list of the values that are going to be inserted (will be automatically casted to predifined type)
         lock_load_save -> If false, user need to load, lock and save the states of the database (CAUTION). Usefull for bulk loading
         '''
+        #timing
+        t0 = time.time()
         if lock_load_save:
             self.load(self.savedir)
             if self.is_locked(table_name):
@@ -241,7 +282,8 @@ class Database:
             self.unlock_table(table_name)
             self._update()
             self.save()
-
+        #timing
+        print(f'Insertion in "{table_name}" took "{time.time()-t0}"')
 
     def update(self, table_name, set_value, set_column, condition):
         '''
